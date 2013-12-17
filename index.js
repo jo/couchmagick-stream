@@ -2,6 +2,7 @@
  * (c) 2013 Johannes J. Schmidt, null2 GmbH, Berlin 
  */
 
+var util = require('util');
 var path = require('path');
 var strformat = require('strformat');
 var spawn = require('child_process').spawn;
@@ -47,29 +48,30 @@ module.exports = function couchmagick(url, config) {
   // TODO: validate config
 
 
-  return es.pipeline(
+  var pipeline = es.pipeline(
     // filter docs
-    es.map(function map(doc, done) {
-      if (!docFilter(doc)) {
+    es.map(function map(data, done) {
+      if (!docFilter(data.doc)) {
         return done();
       }
 
-      if (typeof config.filter === 'function' && !config.filter(doc)) {
+      if (typeof config.filter === 'function' && !config.filter(data.doc)) {
         return done();
       }
 
-      done(null, doc);
+      done(null, data);
     }),
 
     // split stream into attachments
-    es.through(function write(doc) {
+    es.through(function write(data) {
       var queue = this.queue;
 
-      Object.keys(doc._attachments).forEach(function(name) {
-        queue({
-          name: name,
-          doc: doc
+      Object.keys(data.doc._attachments).forEach(function(name) {
+        util._extend(data, {
+          name: name
         });
+
+        queue(data);
       });
     }, noop),
 
@@ -108,8 +110,7 @@ module.exports = function couchmagick(url, config) {
         });
         var type = 'image/' + options.format;
 
-
-        queue({
+        util._extend(data, {
           source: {
             id: data.doc._id,
             name: data.name,
@@ -123,6 +124,8 @@ module.exports = function couchmagick(url, config) {
             type: type
           }
         });
+
+        queue(data);
       });
     }, noop),
 
@@ -209,8 +212,12 @@ module.exports = function couchmagick(url, config) {
 
         // return response
         es.through(this.queue)
-      );
+      ).on('end', function() {
+        pipeline.emit('completed', data);
+      });
     }, noop)
   );
+
+  return pipeline;
 };
 
