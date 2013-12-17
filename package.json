@@ -1,0 +1,35 @@
+{
+  "name": "couchmagick-stream",
+  "version": "1.0.0",
+  "description": "Pipe CouchDB documents through ImageMagicks convert.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "jshint": "jshint -c .jshintrc index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/null2/couchmagick-stream"
+  },
+  "keywords": [
+    "couchdb",
+    "imagemagick",
+    "convert",
+    "stream"
+  ],
+  "author": "Johannes J. Schmidt",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/null2/couchmagick-stream/issues"
+  },
+  "devDependencies": {
+    "jshint": "~2.3.0"
+  },
+  "dependencies": {
+    "event-stream": "~3.0.20",
+    "request": "~2.30.0",
+    "JSONStream": "~0.7.1",
+    "nano": "~4.2.1",
+    "strformat": "0.0.3"
+  }
+}
