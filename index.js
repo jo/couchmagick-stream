@@ -8,6 +8,7 @@ var strformat = require('strformat');
 var spawn = require('child_process').spawn;
 var es = require('event-stream');
 var nano = require('nano');
+var mime = require('mime');
 
 var noop = function() {};
 
@@ -108,7 +109,7 @@ module.exports = function couchmagick(url, config) {
           basename: path.basename(data.name, path.extname(data.name)),
           dirname: path.dirname(data.name)
         });
-        var type = 'image/' + options.format;
+        var type = mime.lookup(options.format);
 
         util._extend(data, {
           source: {
