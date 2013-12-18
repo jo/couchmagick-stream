@@ -73,7 +73,7 @@ module.exports = function couchmagick(url, config) {
 
         queue(data);
       });
-    }, noop),
+    }),
 
     // filter attachments
     es.map(function map(data, done) {
@@ -127,7 +127,7 @@ module.exports = function couchmagick(url, config) {
 
         queue(data);
       });
-    }, noop),
+    }),
 
 
     // filter derived versions to prevent cascades
@@ -150,7 +150,7 @@ module.exports = function couchmagick(url, config) {
 
 
     // get target doc
-    es.through(function write(data) {
+    es.map(function map(data, done) {
       var queue = this.queue;
 
       db.get(data.target.id, function(err, doc) {
@@ -158,13 +158,13 @@ module.exports = function couchmagick(url, config) {
           data.target.doc = doc;
         }
 
-        queue(data);
+        done(null, data);
       });
-    }, noop),
+    }),
 
 
     // store reference to source in target doc
-    es.through(function write(data) {
+    es.map(function map(data, done) {
       var queue = this.queue;
 
       data.target.doc = data.target.doc || { _id: data.target.id };
@@ -181,21 +181,21 @@ module.exports = function couchmagick(url, config) {
           data.target.rev = response.rev;
         }
 
-        queue(data);
+        done(null, data);
       });
-    }, noop),
+    }),
 
 
     // process attachments
-    es.through(function write(data) {
+    es.map(function map(data, done) {
       var convert = spawn('convert', data.args);
 
       // emit convert errors
-      var emit = this.emit;
       convert.stderr.on('data', function(err) {
-        emit('error', err);
+        done(err);
       });
 
+      var params = data.target.rev ? { rev: data.target.rev } : null;
 
       es.pipeline(
         // request attachment
@@ -205,17 +205,19 @@ module.exports = function couchmagick(url, config) {
         es.duplex(convert.stdin, convert.stdout),
 
         // save attachment
-        db.attachment.insert(data.target.id, data.target.name, null, data.target.type, data.target.rev ? { rev: data.target.rev } : null),
+        db.attachment
+          .insert(data.target.id, data.target.name, null, data.target.type, params),
 
         // parse response
-        es.parse(),
-
-        // return response
-        es.through(this.queue)
-      ).on('end', function() {
-        pipeline.emit('completed', data);
+        es.parse()
+    ).on('data', function(response) {
+        data.response = response;
+        done(null, data);
+      })
+    .on('end', function() {
+        pipeline.emit('completed', data)
       });
-    }, noop)
+    })
   );
 
   return pipeline;

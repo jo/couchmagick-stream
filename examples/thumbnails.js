@@ -37,6 +37,9 @@ var magick = es.pipeline(
   request.get(couch + '/_all_docs', { qs: { include_docs: true } }),
   JSONStream.parse('rows.*'),
   stream(couch, config),
+  es.map(function map(data, done) {
+    done(null, data.response);
+  }),
   es.stringify(),
   process.stdout
 );
