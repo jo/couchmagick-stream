@@ -8,7 +8,6 @@ var strformat = require('strformat');
 var spawn = require('child_process').spawn;
 var es = require('event-stream');
 var nano = require('nano');
-var mime = require('mime');
 
 var noop = function() {};
 
@@ -109,7 +108,6 @@ module.exports = function couchmagick(url, config) {
           basename: path.basename(data.name, path.extname(data.name)),
           dirname: path.dirname(data.name)
         });
-        var type = mime.lookup(options.format);
 
         util._extend(data, {
           source: {
@@ -122,7 +120,7 @@ module.exports = function couchmagick(url, config) {
           target: {
             id: id,
             name: name,
-            type: type
+            content_type: options.content_type
           }
         });
 
@@ -207,7 +205,7 @@ module.exports = function couchmagick(url, config) {
 
         // save attachment
         db.attachment
-          .insert(data.target.id, data.target.name, null, data.target.type, params),
+          .insert(data.target.id, data.target.name, null, data.target.content_type, params),
 
         // parse response
         es.parse()

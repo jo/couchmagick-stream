@@ -18,9 +18,9 @@ var config = {
       filter: function(doc, name) {
         return doc.display && doc.display.indexOf('overview') > -1;
       },
-      format: "jpg",
       id: "{id}/thumbnail",
       name: "{basename}-thumbnail.jpg",
+      content_type: "image/jpeg",
       args: [
         "-",
         "-resize", "x100",
