@@ -2,7 +2,6 @@
  * (c) 2013 Johannes J. Schmidt, null2 GmbH, Berlin 
  */
 
-var util = require('util');
 var path = require('path');
 var strformat = require('strformat');
 var spawn = require('child_process').spawn;
@@ -42,12 +41,36 @@ function attachmentFilter(doc, name) {
 }
 
 
+// quick and dirty spawn queue
+var last;
+var queue = [];
+function convert(args, callback) {
+  if (!last) {
+    last = spawn('convert', args);
+    last.on('exit', function() {
+      if (queue.length) {
+        var a = queue.pop();
+        last = spawn('convert', a[0]);
+        a[1](last);
+      }
+    });
+
+    return callback(last);
+  }
+
+  queue.push([args, callback]);
+}
+
+
 module.exports = function couchmagick(url, config) {
   var db = nano(url);
 
   // TODO: validate config
 
 
+  // TODO: serialize:
+  //   read, convert and write one attachment,
+  //   than process the next one
   var pipeline = es.pipeline(
     // filter docs
     es.map(function map(data, done) {
@@ -67,11 +90,10 @@ module.exports = function couchmagick(url, config) {
       var queue = this.queue;
 
       Object.keys(data.doc._attachments).forEach(function(name) {
-        util._extend(data, {
+        queue({
+          doc: data.doc,
           name: name
         });
-
-        queue(data);
       });
     }),
 
@@ -90,47 +112,46 @@ module.exports = function couchmagick(url, config) {
     es.through(function write(data) {
       var queue = this.queue;
 
-      Object.keys(config.versions).forEach(function(version) {
-        var options = config.versions[version];
+      Object.keys(config.versions).forEach(function(name) {
+        var version = config.versions[name];
 
         // run version filter
-        if (typeof options.filter === 'function' && !options.filter(data.doc)) {
+        if (typeof version.filter === 'function' && !version.filter(data.doc)) {
           return;
         }
 
         // construct target doc
-        var id = strformat(options.id, {
+        var id = strformat(version.id, {
           id: data.doc._id,
-          version: version
+          parts: data.doc._id.split('/'),
+          version: name
         });
-        var name = strformat(options.name, {
+        var name = strformat(version.name, {
+          id: data.doc._id,
+          parts: data.doc._id.split('/'),
+          version: name,
+
           name: data.name,
           extname: path.extname(data.name),
           basename: path.basename(data.name, path.extname(data.name)),
-          dirname: path.dirname(data.name),
-          version: version
+          dirname: path.dirname(data.name)
         });
 
 
-        var d = {};
-        util._extend(d, data);
-
-        util._extend(d, {
+        queue({
           source: {
             id: data.doc._id,
             name: data.name,
             revpos: data.doc._attachments[data.name].revpos,
             couchmagick: data.doc.couchmagick
           },
-          args: options.args,
+          args: version.args,
           target: {
             id: id,
             name: name,
-            content_type: options.content_type
+            content_type: version.content_type
           }
         });
-
-        queue(d);
       });
     }),
 
@@ -156,8 +177,6 @@ module.exports = function couchmagick(url, config) {
 
     // get target doc
     es.map(function map(data, done) {
-      var queue = this.queue;
-
       db.get(data.target.id, function(err, doc) {
         if (doc) {
           data.target.doc = doc;
@@ -170,8 +189,6 @@ module.exports = function couchmagick(url, config) {
 
     // store reference to source in target doc
     es.map(function map(data, done) {
-      var queue = this.queue;
-
       data.target.doc = data.target.doc || { _id: data.target.id };
       data.target.doc.couchmagick = data.target.doc.couchmagick || {};
       data.target.doc.couchmagick[data.target.id] = data.target.doc.couchmagick[data.target.id] || {};
@@ -193,35 +210,41 @@ module.exports = function couchmagick(url, config) {
 
     // process attachments
     es.map(function map(data, done) {
-      var convert = spawn('convert', data.args);
+      convert(data.args, function(c) {
+        // emit convert errors
+        c.stderr.on('data', function(err) {
+          done(err);
+        });
 
-      // emit convert errors
-      convert.stderr.on('data', function(err) {
-        done(err);
+        var params = data.target.rev ? { rev: data.target.rev } : null;
+
+        var save = es.pipeline(
+          // request attachment
+          db.attachment.get(data.source.id, data.source.name),
+
+          // convert attachment
+          es.duplex(c.stdin, c.stdout),
+
+          // save attachment
+          db.attachment
+            .insert(data.target.id, data.target.name, null, data.target.content_type, params),
+
+          // parse response
+          es.parse()
+        );
+        
+        save.on('data', function(response) {
+          data.response = response;
+
+          done(null, data);
+        });
+        save.on('end', function() {
+          pipeline.emit('completed', data);
+        });
       });
 
-      var params = data.target.rev ? { rev: data.target.rev } : null;
+      // var convert = spawn('convert', data.args);
 
-      es.pipeline(
-        // request attachment
-        db.attachment.get(data.source.id, data.source.name),
-
-        // convert attachment
-        es.duplex(convert.stdin, convert.stdout),
-
-        // save attachment
-        db.attachment
-          .insert(data.target.id, data.target.name, null, data.target.content_type, params),
-
-        // parse response
-        es.parse()
-    ).on('data', function(response) {
-        data.response = response;
-        done(null, data);
-      })
-    .on('end', function() {
-        pipeline.emit('completed', data)
-      });
     })
   );
 
