@@ -111,7 +111,11 @@ module.exports = function couchmagick(url, config) {
           version: version
         });
 
-        util._extend(data, {
+
+        var d = {};
+        util._extend(d, data);
+
+        util._extend(d, {
           source: {
             id: data.doc._id,
             name: data.name,
@@ -126,7 +130,7 @@ module.exports = function couchmagick(url, config) {
           }
         });
 
-        queue(data);
+        queue(d);
       });
     }),
 
