@@ -65,12 +65,14 @@ Placeholders
 
 ### `id`
 * `id` - the original doc id
+* `version` - name of the version
 
 ### `name`
 * `name` - original attachment name, eg `this/is/my-image.jpg`
 * `extname` - file extenstion of the original attachment name, eg `.jpg`
 * `basename` - basename without extension, eg `my-image`
 * `dirname` - directory name, eg `this/is`
+* `version` - name of the version
 
 
 Examples

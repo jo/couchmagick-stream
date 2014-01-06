@@ -100,13 +100,15 @@ module.exports = function couchmagick(url, config) {
 
         // construct target doc
         var id = strformat(options.id, {
-          id: data.doc._id
+          id: data.doc._id,
+          version: version
         });
         var name = strformat(options.name, {
           name: data.name,
           extname: path.extname(data.name),
           basename: path.basename(data.name, path.extname(data.name)),
-          dirname: path.dirname(data.name)
+          dirname: path.dirname(data.name),
+          version: version
         });
 
         util._extend(data, {
