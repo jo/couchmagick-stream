@@ -231,7 +231,7 @@ module.exports = function couchmagick(url, configs, options) {
         data.source.couchmagick[data.source.id][data.source.name].id;
 
       if (derivative) {
-        done();
+        return done();
       }
       
       done(null, data);
