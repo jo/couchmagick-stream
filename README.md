@@ -65,14 +65,26 @@ Placeholders
 
 ### `id`
 * `id` - the original doc id
+* `parts` - array of the id splitted at `/`
 * `version` - name of the version
 
 ### `name`
+* `id` - the original doc id
+* `parts` - array of the id splitted at `/`
+* `version` - name of the version
 * `name` - original attachment name, eg `this/is/my-image.jpg`
 * `extname` - file extenstion of the original attachment name, eg `.jpg`
 * `basename` - basename without extension, eg `my-image`
 * `dirname` - directory name, eg `this/is`
 * `version` - name of the version
+
+
+Options
+-------
+couchmagick-stream accepts an optional options object as third parameter, which accepts
+the following keys:
+
+* `concurrency` - Number of simultanous processes
 
 
 Examples

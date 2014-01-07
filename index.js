@@ -7,6 +7,7 @@ var strformat = require('strformat');
 var spawn = require('child_process').spawn;
 var es = require('event-stream');
 var nano = require('nano');
+var async = require('async');
 
 var noop = function() {};
 
@@ -20,8 +21,7 @@ function docFilter(doc) {
     return false;
   }
 
-  var names = Object.keys(doc._attachments);
-  if (!names.length) {
+  if (!Object.keys(doc._attachments).length) {
     return false;
   }
 
@@ -41,44 +41,104 @@ function attachmentFilter(doc, name) {
 }
 
 
-// quick and dirty spawn queue
-var last;
-var queue = [];
-function convert(args, callback) {
-  if (!last) {
-    last = spawn('convert', args);
-    last.on('exit', function() {
-      if (queue.length) {
-        var a = queue.pop();
-        last = spawn('convert', a[0]);
-        a[1](last);
-      }
-    });
 
-    return callback(last);
-  }
-
-  queue.push([args, callback]);
-}
-
-
-module.exports = function couchmagick(url, config) {
+module.exports = function couchmagick(url, configs, options) {
   var db = nano(url);
 
-  // TODO: validate config
+  // TODO: validate configs
 
 
-  // TODO: serialize:
-  //   read, convert and write one attachment,
-  //   than process the next one
+  options = options || {};
+  options.concurrency = options.concurrency || 1;
+
+
+  // serialize processing
+  var convert = async.queue(function(data, callback) {
+    // get target doc
+    db.get(data.target.id, function(err, doc) {
+      data.target.doc = doc || { _id: data.target.id };
+      data.target.doc.couchmagick = data.target.doc.couchmagick || {};
+      data.target.doc.couchmagick[data.target.id] = data.target.doc.couchmagick[data.target.id] || {};
+      data.target.doc.couchmagick[data.target.id][data.target.name] = {
+        id: data.source.id,
+        name: data.source.name,
+        revpos: data.source.revpos
+      };
+
+
+      // store mark
+      // TODO: do it in one go via multipart
+      db.insert(data.target.doc, data.target.id, function(err, response) {
+        if (!err && response.ok) {
+          data.target.doc._rev = response.rev;
+        }
+
+        // convert process
+        var c = spawn('convert', data.args);
+
+        // emit convert errors
+        c.stderr.on('data', function(err) {
+          callback(err);
+        });
+
+        var params = data.target.doc._rev ? { rev: data.target.doc._rev } : null;
+
+        var save = es.pipeline(
+          // request attachment
+          db.attachment.get(data.source.id, data.source.name),
+
+          // convert attachment
+          es.duplex(c.stdin, c.stdout),
+
+          // save attachment
+          db.attachment.insert(data.target.id, data.target.name, null, data.target.content_type, params),
+
+          // parse response
+          es.parse()
+        );
+        
+        save.on('error', function(err) {
+          data.error = err;
+        });
+        
+        save.on('data', function(response) {
+          data.response = response;
+        });
+        
+        save.on('end', function() {
+          callback(null, data);
+        });
+      });
+    });
+  }, options.concurrency);
+
+
   var pipeline = es.pipeline(
-    // filter docs
+    // filter docs with builtin filter
     es.map(function map(data, done) {
       if (!docFilter(data.doc)) {
         return done();
       }
 
-      if (typeof config.filter === 'function' && !config.filter(data.doc)) {
+      done(null, data);
+    }),
+
+    // split stream into each config
+    es.through(function write(data) {
+      var queue = this.queue;
+
+      Object.keys(configs).forEach(function(config) {
+        queue({
+          seq: data.seq,
+          doc: data.doc,
+          config: configs[config]
+        });
+      });
+    }),
+
+    // filter docs with config filter
+    es.map(function map(data, done) {
+      if (typeof data.config.filter === 'function' && !data.config.filter(data.doc)) {
         return done();
       }
 
@@ -91,13 +151,15 @@ module.exports = function couchmagick(url, config) {
 
       Object.keys(data.doc._attachments).forEach(function(name) {
         queue({
+          seq: data.seq,
           doc: data.doc,
+          config: data.config,
           name: name
         });
       });
     }),
 
-    // filter attachments
+    // filter attachments with builtin
     es.map(function map(data, done) {
       if (!attachmentFilter(data.doc, data.name)) {
         return done();
@@ -112,8 +174,8 @@ module.exports = function couchmagick(url, config) {
     es.through(function write(data) {
       var queue = this.queue;
 
-      Object.keys(config.versions).forEach(function(name) {
-        var version = config.versions[name];
+      Object.keys(data.config.versions).forEach(function(name) {
+        var version = data.config.versions[name];
 
         // run version filter
         if (typeof version.filter === 'function' && !version.filter(data.doc)) {
@@ -139,6 +201,7 @@ module.exports = function couchmagick(url, config) {
 
 
         queue({
+          seq: data.seq,
           source: {
             id: data.doc._id,
             name: data.name,
@@ -175,78 +238,18 @@ module.exports = function couchmagick(url, config) {
     }),
 
 
-    // get target doc
-    es.map(function map(data, done) {
-      db.get(data.target.id, function(err, doc) {
-        if (doc) {
-          data.target.doc = doc;
-        }
-
-        done(null, data);
-      });
-    }),
-
-
-    // store reference to source in target doc
-    es.map(function map(data, done) {
-      data.target.doc = data.target.doc || { _id: data.target.id };
-      data.target.doc.couchmagick = data.target.doc.couchmagick || {};
-      data.target.doc.couchmagick[data.target.id] = data.target.doc.couchmagick[data.target.id] || {};
-      data.target.doc.couchmagick[data.target.id][data.target.name] = {
-        id: data.source.id,
-        name: data.source.name,
-        revpos: data.source.revpos
-      };
-
-      db.insert(data.target.doc, data.target.id, function(err, response) {
-        if (!err && response.ok) {
-          data.target.rev = response.rev;
-        }
-
-        done(null, data);
-      });
-    }),
-
-
     // process attachments
     es.map(function map(data, done) {
-      convert(data.args, function(c) {
-        // emit convert errors
-        c.stderr.on('data', function(err) {
-          done(err);
-        });
+      pipeline.emit('started', data);
 
-        var params = data.target.rev ? { rev: data.target.rev } : null;
+      convert.push(data, function(err, res) {
+        pipeline.emit('completed', data);
 
-        var save = es.pipeline(
-          // request attachment
-          db.attachment.get(data.source.id, data.source.name),
-
-          // convert attachment
-          es.duplex(c.stdin, c.stdout),
-
-          // save attachment
-          db.attachment
-            .insert(data.target.id, data.target.name, null, data.target.content_type, params),
-
-          // parse response
-          es.parse()
-        );
-        
-        save.on('data', function(response) {
-          data.response = response;
-
-          done(null, data);
-        });
-        save.on('end', function() {
-          pipeline.emit('completed', data);
-        });
+        done(err, res);
       });
-
-      // var convert = spawn('convert', data.args);
-
     })
   );
+
 
   return pipeline;
 };
