@@ -56,6 +56,7 @@ module.exports = function couchmagick(url, configs, options) {
   var convert = async.queue(function(data, callback) {
     // get target doc
     db.get(data.target.id, function(err, doc) {
+      // insert couchmagick stamp
       data.target.doc = doc || { _id: data.target.id };
       data.target.doc.couchmagick = data.target.doc.couchmagick || {};
       data.target.doc.couchmagick[data.target.id] = data.target.doc.couchmagick[data.target.id] || {};
@@ -66,49 +67,83 @@ module.exports = function couchmagick(url, configs, options) {
       };
 
 
-      // store mark
-      // TODO: do it in one go via multipart
-      db.insert(data.target.doc, data.target.id, function(err, response) {
-        if (!err && response.ok) {
-          data.target.doc._rev = response.rev;
+      // query params, doc_name is used by nano as id
+      var params = {
+        doc_name: data.target.id
+      };
+      if (data.target.doc._rev) {
+        params.rev = data.target.doc._rev;
+      }
+      
+      // attachment multipart part
+      var attachment = {
+        name: data.target.name,
+        content_type: data.target.content_type,
+        data: []
+      };
+      var cerror = [];
+
+      // convert process
+      var c = spawn('convert', data.args);
+      // emit convert errors
+      c.stderr.on('data', function(err) {
+        cerror.push(err);
+      });
+
+      // collect convert output
+      c.stdout.on('data', function(data) {
+        attachment.data.push(data);
+      });
+
+      // concat convert output
+      c.stdout.on('end', function() {
+        attachment.data = Buffer.concat(attachment.data);
+      });
+
+      // convert process finish
+      c.on('close', function(code) {
+        // store exit code
+        data.code = code;
+        data.target.doc.couchmagick[data.target.id][data.target.name].code = data.code;
+
+        if (code === 0) {
+          // no error: make multipart request
+          return db.multipart.insert(data.target.doc, [attachment], params, function(err, response) {
+            if (err) {
+              return callback(err);
+            }
+
+            data.response = response;
+            if (response.rev) {
+              data.target.rev = response.rev;
+            }
+
+            callback(null, data);
+          });
         }
+      
+        // store error
+        data.error = Buffer.concat(cerror).toString();
+        data.target.doc.couchmagick[data.target.id][data.target.name].error = data.error;
 
-        // convert process
-        var c = spawn('convert', data.args);
+        // store document stup, discard attachment
+        db.insert(data.target.doc, data.target.id, function(err, response) {
+          if (err) {
+            return callback(err);
+          }
 
-        // emit convert errors
-        c.stderr.on('data', function(err) {
-          callback(err);
-        });
-
-        var params = data.target.doc._rev ? { rev: data.target.doc._rev } : null;
-
-        var save = es.pipeline(
-          // request attachment
-          db.attachment.get(data.source.id, data.source.name),
-
-          // convert attachment
-          es.duplex(c.stdin, c.stdout),
-
-          // save attachment
-          db.attachment.insert(data.target.id, data.target.name, null, data.target.content_type, params),
-
-          // parse response
-          es.parse()
-        );
-        
-        save.on('error', function(err) {
-          data.error = err;
-        });
-        
-        save.on('data', function(response) {
           data.response = response;
-        });
-        
-        save.on('end', function() {
+          if (response.rev) {
+            data.target.rev = response.rev;
+          }
+
           callback(null, data);
         });
       });
+
+
+      // request attachment and pipe it into convert process
+      db.attachment.get(data.source.id, data.source.name).pipe(c.stdin);
     });
   }, options.concurrency);
 
@@ -177,8 +212,23 @@ module.exports = function couchmagick(url, configs, options) {
       Object.keys(data.config.versions).forEach(function(name) {
         var version = data.config.versions[name];
 
+        // version defaults
+        version.id   =         version.id           || '{id}/{version}';
+        version.name =         version.name         || '{basename}-{version}{extname}';
+        version.content_type = version.content_type || 'image/jpeg';
+        version.args =         version.args         || [];
+
+        // first arg is input pipe
+        if (!version.args[0] || version.args[0] !== '-') {
+          version.args.unshift('-');
+        }
+        // last arg is output pipe
+        if (version.args.length < 2 || !version.args[version.args.length - 1].match(/^[a-z]{0,3}:-$/)) {
+          version.args.push('jpg:-');
+        }
+
         // run version filter
-        if (typeof version.filter === 'function' && !version.filter(data.doc)) {
+        if (typeof version.filter === 'function' && !version.filter(data.doc, data.name)) {
           return;
         }
 
@@ -224,6 +274,8 @@ module.exports = function couchmagick(url, configs, options) {
     //   single-attachment/thumbnail
     //   single-attachment/thumbnail/thumbnail
     //   single-attachment/thumbnail/thumbnail/thumbnail
+    //
+    // TODO: do not process attachments twice, respect revpos
     es.map(function map(data, done) {
       var derivative = data.source.couchmagick &&
         data.source.couchmagick[data.source.id] &&

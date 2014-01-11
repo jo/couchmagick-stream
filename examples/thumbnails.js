@@ -9,25 +9,12 @@ var es = require('event-stream');
 var request = require('request').defaults({ json: true });
 var JSONStream = require('JSONStream');
 
+// generate a thumbnail for all images
 var config = {
-  filter: function(doc) {
-    return doc.type === 'post';
-  },
   versions: {
     thumbnail: {
-      filter: function(doc, name) {
-        return doc.display && doc.display.indexOf('overview') > -1;
-      },
-      id: "{id}/thumbnail",
-      name: "{basename}-thumbnail.jpg",
-      content_type: "image/jpeg",
       args: [
-        "-",
-        "-resize", "x100",
-        "-quality", "75",
-        "-colorspace", "sRGB",
-        "-strip",
-        "jpg:-"
+        "-resize", "x100"
       ]
     }
   }
@@ -36,10 +23,7 @@ var config = {
 var magick = es.pipeline(
   request.get(couch + '/_all_docs', { qs: { include_docs: true } }),
   JSONStream.parse('rows.*'),
-  stream(couch, config, { concurrency: 2 }),
-  es.map(function map(data, done) {
-    done(null, data.response);
-  }),
+  stream(couch, { thumbnails: config }),
   es.stringify(),
   process.stdout
 );

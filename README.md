@@ -10,26 +10,11 @@ var es = require('event-stream');
 var request = require('request').defaults({ json: true });
 
 var couch = 'http://localhost:5984/mydb';
-
 var config = {
-  filter: function(doc) {
-    return doc.type === 'post';
-  },
   versions: {
     thumbnail: {
-      filter: function(doc, name) {
-        return doc.display && doc.display.indexOf('overview') > -1;
-      },
-      id: "{id}/thumbnail",
-      name: "{basename}-thumbnail.jpg",
-      content_type: "image/jpeg",
       args: [
-        "-",
-        "-resize", "x100",
-        "-quality", "75",
-        "-colorspace", "sRGB",
-        "-strip",
-        "jpg:-"
+        "-resize", "x100"
       ]
     }
   }
@@ -38,7 +23,7 @@ var config = {
 es.pipeline(
   request.get(couch + '/_all_docs', { qs: { include_docs: true } }),
   JSONStream.parse('rows.*'),
-  stream(couch, config),
+  stream(couch, { thumbs: config }),
   es.map(function map(data, done) {
     done(null, data.response);
   }),
@@ -47,28 +32,34 @@ es.pipeline(
 );
 ```
 
-Filters
--------
-There are two kinds of filters which you can define: one operates on doc level
-and one on attachment level. The latter are defined on a per variant level.
+See `examples/posts.js` for an advanced usage example.
 
-### Document Filter
+
+### `filter`
+There are two kinds of filters which you can define: one operates on doc level
+and one on version level.
+
+#### Document Filter
 This filter is called with one argument: document.
 
-### Attachment Filter
+#### Version Filter
 This filter is called with two arguments, document and attachment name.
 
-
-Placeholders
-------------
-`version.id` and `version.name` can have placeholders:
+### `content_type`
+Content-Type of the resulting attachment. Default is `image/jpeg`.
 
 ### `id`
+The document id where the version is stored. Defaults to `{id}/{version}`.
+
+Can have the following placeholders:
 * `id` - the original doc id
 * `parts` - array of the id splitted at `/`
 * `version` - name of the version
 
 ### `name`
+The attachment name of the version. Default is `{basename}-{version}{extname}`.
+
+Can have placeholders:
 * `id` - the original doc id
 * `parts` - array of the id splitted at `/`
 * `version` - name of the version
@@ -78,13 +69,20 @@ Placeholders
 * `dirname` - directory name, eg `this/is`
 * `version` - name of the version
 
+### `args`
+Array of argument strings for ImageMagicks `convert`.
+
+The default is `['-', 'jpg:-']`, which means that ImageMagick converts the image
+to `jpg`. You can see that we use `convert` with pipes for in- and output.
+
+See [ImageMagick Convert Command-line Tool](http://www.imagemagick.org/script/convert.php)
+for a comprehensive list of options.
 
 Options
 -------
-couchmagick-stream accepts an optional options object as third parameter, which accepts
-the following keys:
+couchmagick-stream accepts an optional options object as third parameter:
 
-* `concurrency` - Number of simultanous processes
+* `concurrency` - Number of simultanous processes. Default is 1.
 
 
 Examples
