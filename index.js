@@ -9,8 +9,6 @@ var es = require('event-stream');
 var nano = require('nano');
 var async = require('async');
 
-var noop = function() {};
-
 
 // Decide whether a whole doc needs processing at all
 function docFilter(doc) {
@@ -218,8 +216,8 @@ module.exports = function couchmagick(url, configs, options) {
     es.through(function write(data) {
       var queue = this.queue;
 
-      Object.keys(data.config.versions).forEach(function(name) {
-        var version = data.config.versions[name];
+      Object.keys(data.config.versions).forEach(function(key) {
+        var version = data.config.versions[key];
 
         // version defaults
         version.id   =         version.id           || '{id}/{version}';
@@ -245,7 +243,7 @@ module.exports = function couchmagick(url, configs, options) {
         var id = strformat(version.id, {
           id: data.doc._id,
           parts: data.doc._id.split('/'),
-          version: name
+          version: key
         });
         var name = strformat(version.name, {
           id: data.doc._id,
