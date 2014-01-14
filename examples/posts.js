@@ -72,7 +72,8 @@ var magick = es.pipeline(
   JSONStream.parse('rows.*'),
 
   // use two concurrent convert processes
-  stream(couch, config, { concurrency: 2 }),
+  // timeout convert process after 2 seconds
+  stream(couch, config, { concurrency: 2, timeout: 2000 }),
   
   // format output
   es.map(function map(data, done) {

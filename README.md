@@ -83,6 +83,7 @@ Options
 couchmagick-stream accepts an optional options object as third parameter:
 
 * `concurrency` - Number of simultanous processes. Default is 1.
+* `timeout` - Timeout for `convert` process. Default is 1 minute.
 
 
 Examples

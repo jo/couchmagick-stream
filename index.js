@@ -45,12 +45,12 @@ function attachmentFilter(doc, name) {
 module.exports = function couchmagick(url, configs, options) {
   var db = nano(url);
 
-  // TODO: validate configs
-
-
   options = options || {};
   options.concurrency = options.concurrency || 1;
+  options.timeout     = options.timeout     || 60 * 1000; // 1 minute
 
+
+  // TODO: validate configs
 
   // serialize processing
   var convert = async.queue(function(data, callback) {
@@ -81,26 +81,35 @@ module.exports = function couchmagick(url, configs, options) {
         content_type: data.target.content_type,
         data: []
       };
-      var cerror = [];
 
       // convert process
       var c = spawn('convert', data.args);
-      // emit convert errors
+
+      // collect errors
+      var cerror = [];
       c.stderr.on('data', function(err) {
         cerror.push(err);
       });
 
-      // collect convert output
+      // convert timeout
+      var kill = setTimeout(function() {
+        cerror.push(new Buffer('timeout'));
+        // send SIGTERM
+        c.kill();
+      }, options.timeout);
+
+      // collect output
       c.stdout.on('data', function(data) {
         attachment.data.push(data);
       });
 
-      // concat convert output
+      // concat output
       c.stdout.on('end', function() {
+        clearTimeout(kill);
         attachment.data = Buffer.concat(attachment.data);
       });
 
-      // convert process finish
+      // convert finish
       c.on('close', function(code) {
         // store exit code
         data.code = code;
