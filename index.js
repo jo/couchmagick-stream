@@ -47,7 +47,7 @@ module.exports = function couchmagick(url, configs, options) {
 
   options = options || {};
   options.concurrency = options.concurrency || 1;
-  options.timeout     = options.timeout     || 60 * 1000; // 1 minute
+  options.convert_process_timeout = options.convert_process_timeout || 60 * 1000; // 1 minute
 
 
   // TODO: validate configs
@@ -96,7 +96,7 @@ module.exports = function couchmagick(url, configs, options) {
         cerror.push(new Buffer('timeout'));
         // send SIGTERM
         c.kill();
-      }, options.timeout);
+      }, options.convert_process_timeout);
 
       // collect output
       c.stdout.on('data', function(data) {
