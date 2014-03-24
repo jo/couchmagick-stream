@@ -248,7 +248,7 @@ module.exports = function couchmagick(url, configs, options) {
         var name = strformat(version.name, {
           id: data.doc._id,
           parts: data.doc._id.split('/'),
-          version: name,
+          version: key,
 
           name: data.name,
           extname: path.extname(data.name),

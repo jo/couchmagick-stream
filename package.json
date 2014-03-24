@@ -1,6 +1,6 @@
 {
   "name": "couchmagick-stream",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "description": "Pipe CouchDB documents through ImageMagicks convert.",
   "main": "index.js",
   "scripts": {
