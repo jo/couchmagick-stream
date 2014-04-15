@@ -54,10 +54,18 @@ module.exports = function couchmagick(url, configs, options) {
   var convert = async.queue(function(data, callback) {
     // get target doc
     db.get(data.target.id, function(err, doc) {
-      // insert couchmagick stamp
       data.target.doc = doc || { _id: data.target.id };
       data.target.doc.couchmagick = data.target.doc.couchmagick || {};
       data.target.doc.couchmagick[data.target.id] = data.target.doc.couchmagick[data.target.id] || {};
+
+      
+      // do not process attachments twice, respect revpos
+      if (data.target.doc.couchmagick[data.target.id][data.target.name] && data.target.doc.couchmagick[data.target.id][data.target.name].revpos === data.source.revpos) {
+        return callback(null, data);
+      }
+
+
+      // insert couchmagick stamp
       data.target.doc.couchmagick[data.target.id][data.target.name] = {
         id: data.source.id,
         name: data.source.name,
@@ -281,8 +289,6 @@ module.exports = function couchmagick(url, configs, options) {
     //   single-attachment/thumbnail
     //   single-attachment/thumbnail/thumbnail
     //   single-attachment/thumbnail/thumbnail/thumbnail
-    //
-    // TODO: do not process attachments twice, respect revpos
     es.map(function map(data, done) {
       var derivative = data.source.couchmagick &&
         data.source.couchmagick[data.source.id] &&
