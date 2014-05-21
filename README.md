@@ -2,6 +2,9 @@ couchmagick-stream
 ============
 Pipe CouchDB documents through ImageMagicks convert.
 
+# Deprication Warning
+This is depricated in favor of [couchmagick](https://github.com/jo/couchmagick).
+
 Usage
 -----
 ```js
